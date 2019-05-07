@@ -3,12 +3,20 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"os"
+	"strings"
 
 	extapi "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
-	//"k8s.io/client-go/kubernetes"
+	// "k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
+	log "k8s.io/klog"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	dnsapi "github.com/gardener/external-dns-management/pkg/apis/dns/v1alpha1"
+	dnsclient "github.com/gardener/external-dns-management/pkg/client/dns/clientset/versioned"
 	"github.com/jetstack/cert-manager/pkg/acme/webhook/apis/acme/v1alpha1"
 	"github.com/jetstack/cert-manager/pkg/acme/webhook/cmd"
 )
@@ -17,7 +25,7 @@ var GroupName = os.Getenv("GROUP_NAME")
 
 func main() {
 	if GroupName == "" {
-		panic("GROUP_NAME must be specified")
+		log.Fatal("GROUP_NAME must be specified")
 	}
 
 	// This will register our custom DNS provider with the webhook serving
@@ -41,7 +49,8 @@ type customDNSProviderSolver struct {
 	// 3. uncomment the relevant code in the Initialize method below
 	// 4. ensure your webhook's service account has the required RBAC role
 	//    assigned to it for interacting with the Kubernetes APIs you need.
-	//client kubernetes.Clientset
+	// client kubernetes.Clientset
+	dclient dnsclient.Clientset
 }
 
 // customDNSProviderConfig is a structure that is used to decode into when
@@ -66,6 +75,9 @@ type customDNSProviderConfig struct {
 
 	//Email           string `json:"email"`
 	//APIKeySecretRef v1alpha1.SecretKeySelector `json:"apiKeySecretRef"`
+	DNSClass  string `json:"dns-class"`
+	TTL       int    `json:"ttl"`
+	Namespace string `json:"namespace"`
 }
 
 // Name is used as the name for this DNS solver when referencing it on the ACME
@@ -75,7 +87,7 @@ type customDNSProviderConfig struct {
 // within a single webhook deployment**.
 // For example, `cloudflare` may be used as the name of a solver.
 func (c *customDNSProviderSolver) Name() string {
-	return "my-custom-solver"
+	return "dns-controller-solver"
 }
 
 // Present is responsible for actually presenting the DNS record with the
@@ -84,15 +96,71 @@ func (c *customDNSProviderSolver) Name() string {
 // cert-manager itself will later perform a self check to ensure that the
 // solver has correctly configured the DNS provider.
 func (c *customDNSProviderSolver) Present(ch *v1alpha1.ChallengeRequest) error {
+	// compute name based on hash of acme challenge domain and key
+	name := computeDNSEntryName(ch)
+	log.V(2).Infof("CHALLENGE received - %s", name)
+	log.V(3).Infof("challenge [%s|-] - set TXT record at '%s' to '%s'", name, ch.ResolvedFQDN, ch.Key)
+
 	cfg, err := loadConfig(ch.Config)
 	if err != nil {
+		log.Errorf("challenge [%s|-] - error decoding solver config: %v", name, err.Error())
 		return err
 	}
 
-	// TODO: do something more useful with the decoded configuration
-	fmt.Printf("Decoded configuration %v", cfg)
+	var namespace string
+	if cfg.Namespace != "" {
+		namespace = cfg.Namespace
+		log.V(4).Infof("challenge [%s|%s] - issuer configuration: namespace=%s", name, namespace, namespace)
+	} else {
+		namespace = ch.ResourceNamespace
+	}
 
-	// TODO: add code that sets a record in the DNS provider's console
+	// set configuration, if specified
+	ann := map[string]string{}
+	if cfg.DNSClass != "" {
+		log.V(4).Infof("challenge [%s|%s] - issuer configuration: dns-class=%s", name, namespace, cfg.DNSClass)
+		ann["dns.gardener.cloud/class"] = cfg.DNSClass
+	}
+	ttl := int64(120)
+	if cfg.TTL > 0 {
+		log.V(4).Infof("challenge [%s|%s] - issuer configuration: ttl=%d", name, namespace, cfg.TTL)
+		ttl = int64(cfg.TTL)
+	}
+	// create DNSEntry object
+	dnse := dnsapi.DNSEntry{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   namespace,
+			Annotations: ann,
+		},
+		Spec: dnsapi.DNSEntrySpec{
+			TTL:     &ttl,
+			DNSName: strings.TrimSuffix(ch.ResolvedFQDN, "."),
+			Text:    []string{ch.Key},
+		},
+	}
+
+	log.V(3).Infof("challenge [%s|%s] - creating TXT record for %s", name, namespace, dnse.Spec.DNSName)
+	_, err2 := c.dclient.KracV1alpha1().DNSEntries(namespace).Create(&dnse)
+	if err2 == nil {
+		log.V(2).Infof("challenge [%s|%s] - DNSEntry for '%s' created", name, namespace, dnse.Spec.DNSName)
+	} else {
+		if errors.IsAlreadyExists(err2) {
+			log.V(3).Infof("challenge [%s|%s] - DNSEntry for '%s' seems to exist, updating it", name, namespace, dnse.Spec.DNSName)
+			_, err3 := c.dclient.KracV1alpha1().DNSEntries(namespace).Update(&dnse)
+			if err3 == nil {
+				log.V(3).Infof("challenge [%s|%s] - updated DNSEntry for '%s' updated", name, namespace, dnse.Spec.DNSName)
+			} else {
+				log.Errorf("challenge [%s|%s] - DNSEntry seems to exist but cannot be updated: %v", name, namespace, err3.Error())
+				return err3
+			}
+		} else {
+			log.Errorf("challenge [%s|%s] - DNSEntry cannot be created: %v", name, namespace, err2.Error())
+			return err2
+		}
+	}
+
 	return nil
 }
 
@@ -103,7 +171,36 @@ func (c *customDNSProviderSolver) Present(ch *v1alpha1.ChallengeRequest) error {
 // This is in order to facilitate multiple DNS validations for the same domain
 // concurrently.
 func (c *customDNSProviderSolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
-	// TODO: add code that deletes a record from the DNS provider's console
+	name := computeDNSEntryName(ch)
+	log.V(2).Infof("CLEANUP received - %s", name)
+
+	cfg, err := loadConfig(ch.Config)
+	if err != nil {
+		log.Errorf("cleanup [%s|-] - error decoding solver config: %v", name, err.Error())
+		return err
+	}
+
+	var namespace string
+	if cfg.Namespace != "" {
+		namespace = cfg.Namespace
+		log.V(4).Infof("cleanup [%s|%s] - issuer configuration: namespace=%s", name, namespace, namespace)
+	} else {
+		namespace = ch.ResourceNamespace
+	}
+
+	log.V(3).Infof("cleanup [%s|%s] - deleting DNSEntry", name, namespace)
+	err = c.dclient.KracV1alpha1().DNSEntries(namespace).Delete(name, &metav1.DeleteOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Warningf("cleanup [%s|%s] - tried to delete DNSEntry, but it didn't exist", name, namespace)
+			return nil
+		} else {
+			log.Errorf("cleanup [%s|%s] - unable to delete DNSEntry: %v", name, namespace, err)
+			return err
+		}
+	}
+	log.V(2).Infof("cleanup [%s|%s] - deleted DNSEntry", name, namespace)
+
 	return nil
 }
 
@@ -117,17 +214,21 @@ func (c *customDNSProviderSolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 // The stopCh can be used to handle early termination of the webhook, in cases
 // where a SIGTERM or similar signal is sent to the webhook process.
 func (c *customDNSProviderSolver) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
-	///// UNCOMMENT THE BELOW CODE TO MAKE A KUBERNETES CLIENTSET AVAILABLE TO
-	///// YOUR CUSTOM DNS PROVIDER
+	dnscl, err := dnsclient.NewForConfig(kubeClientConfig)
+	if err != nil {
+		log.Fatalf("error building dns-controller clientset: %s", err.Error())
+	}
+	c.dclient = *dnscl
 
-	//cl, err := kubernetes.NewForConfig(kubeClientConfig)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//c.client = cl
+	for i := 9; i >= 0; i-- {
+		if log.V(log.Level(i)) {
+			log.V(0).Infof("logging with verbosity %d", i)
+			break
+		}
+	}
 
-	///// END OF CODE TO MAKE KUBERNETES CLIENTSET AVAILABLE
+	log.V(1).Info("successfully initialized")
+
 	return nil
 }
 
@@ -140,8 +241,18 @@ func loadConfig(cfgJSON *extapi.JSON) (customDNSProviderConfig, error) {
 		return cfg, nil
 	}
 	if err := json.Unmarshal(cfgJSON.Raw, &cfg); err != nil {
-		return cfg, fmt.Errorf("error decoding solver config: %v", err)
+		return cfg, err
 	}
 
 	return cfg, nil
+}
+
+func computeDNSEntryName(ch *v1alpha1.ChallengeRequest) string {
+	return fmt.Sprintf("acme-challenge-%d", hash(ch.ResolvedFQDN+ch.Key))
+}
+
+func hash(s string) uint32 {
+	h := crc32.New(crc32.MakeTable(0xD5828281))
+	h.Write([]byte(s))
+	return h.Sum32()
 }
