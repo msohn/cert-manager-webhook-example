@@ -7,11 +7,8 @@ require (
 	github.com/gardener/controller-manager-library v0.0.0-20190508145811-670efa3cd76c // indirect
 	github.com/gardener/external-dns-management v0.0.0-20190508150408-ef73be2d81c0
 	github.com/imdario/mergo v0.3.7 // indirect
-	github.com/jetstack/cert-manager v0.8.0-alpha.0
+	github.com/jetstack/cert-manager v0.8.0
 	github.com/mitchellh/hashstructure v1.0.0 // indirect
-	github.com/sirupsen/logrus v1.2.0
-	golang.org/x/oauth2 v0.0.0-20190402181905-9f3314589c9a // indirect
-	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	k8s.io/apiextensions-apiserver v0.0.0-20190413053546-d0acb7a76918
 	k8s.io/apimachinery v0.0.0-20190509063443-7d8f8feb49c5
 	k8s.io/client-go v11.0.0+incompatible
