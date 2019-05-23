@@ -1,3 +1,4 @@
+```
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -199,3 +200,50 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+```
+
+## APIs
+
+This project may include APIs to SAP or third party products or services. The use of these APIs, products and services may be subject to additional agreements. In no event shall the application of the Apache Software License, v.2 to this project grant any rights in or to these APIs, products or services that would alter, expand, be inconsistent with, or supersede any terms of these additional agreements. API means application programming interfaces, as well as their respective specifications and implementing code that allows other software products to communicate with or call on SAP or third party products or services (for example, SAP Enterprise Services, BAPIs, Idocs, RFCs and ABAP calls or other user exits) and may be made available through SAP or third party products, SDKs, documentation or other media.
+
+
+## Subcomponents
+
+This project includes the following subcomponents that are subject to separate license terms. 
+Your use of these subcomponents is subject to the separate license terms applicable to
+each subcomponent.
+
+API.  
+https://git.k8s.io/api.  
+Copyright 2017 The Kubernetes Authors.  
+Apache 2 license (https://git.k8s.io/api/LICENSE).
+
+APIMachinery.  
+https://git.k8s.io/apimachinery.  
+Copyright 2017 The Kubernetes Authors.  
+Apache 2 license (https://git.k8s.io/apimachinery/LICENSE).
+
+APIExtensions-Apiserver.
+https://git.k8s.io/apiextensions-apiserver.
+Copyright 2017 The Kubernetes Authors.
+Apache 2 license (https://git.k8s.io/apiextensions-apiserver/LICENSE).
+
+Client-Go.  
+https://git.k8s.io/client-go.  
+Copyright 2017 The Kubernetes Authors.  
+Apache 2 license (https://git.k8s.io/client-go/LICENSE).
+
+Helm.  
+https://git.k8s.io/helm.  
+Copyright 2017 The Kubernetes Authors.  
+Apache 2 license (https://git.k8s.io/helm/LICENSE).
+
+Cert-Manager.
+https://github.com/jetstack/cert-manager.
+Copyright 2017 The Jetstack cert-manager contributors.
+Apache 2 license (https://github.com/jetstack/cert-manager/blob/master/LICENSE).
+
+Klog.
+https://git.k8s.io/klog.
+Copyright 2013 Google Inc.
+Apache 2 license (https://git.k8s.io/klog/LICENSE)
