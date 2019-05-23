@@ -19,6 +19,7 @@ image:
 
 nameOverride: ""
 fullnameOverride: certificate-dns-bridge
+solverName: certificate-dns-bridge
 
 service:
   type: ClusterIP

@@ -22,10 +22,14 @@ import (
 )
 
 var GroupName = os.Getenv("GROUP_NAME")
+var SolverName = os.Getenv("SOLVER_NAME")
 
 func main() {
 	if GroupName == "" {
 		log.Fatal("GROUP_NAME must be specified")
+	}
+	if SolverName == "" {
+		log.Fatal("SOLVER_NAME must be specified")
 	}
 
 	// This will register our custom DNS provider with the webhook serving
@@ -87,7 +91,7 @@ type customDNSProviderConfig struct {
 // within a single webhook deployment**.
 // For example, `cloudflare` may be used as the name of a solver.
 func (c *customDNSProviderSolver) Name() string {
-	return "dns-controller-solver"
+	return SolverName
 }
 
 // Present is responsible for actually presenting the DNS record with the
